@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comprobante de Venta #{{ venta.id }} - MisePlace</title>
+    <link rel="stylesheet" href="/static/css/estilos.css">
+    <style>
+        body {
+            background-color: #f1f5f9;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 440px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between;" class="no-print">
+            <a href="{% url 'ventas:pos' %}" class="btn btn-secondary">← Volver al Menú</a>
+            <button type="button" class="btn btn-primary" onclick="window.print()">🖨️ Imprimir</button>
+        </div>
+
+        <div class="receipt-ticket">
+            <div class="receipt-center">
+                <h2>MISEPLACE</h2>
+                <p style="font-size: 0.8rem; font-weight: bold;">GESTIÓN GASTRONÓMICA</p>
+                <div class="receipt-meta">
+                    COMPROBANTE DE VENTA #{{ venta.id }}<br>
+                    Fecha: {{ venta.fecha_hora|date:"d/m/Y H:i" }}<br>
+                    Método de Pago: {{ venta.metodo_pago }}<br>
+                    {% if venta.usuario %}Atendido por: {{ venta.usuario.nombre|default:venta.usuario.email }}{% endif %}
+                </div>
+            </div>
+
+            <table class="receipt-table">
+                <thead>
+                    <tr>
+                        <th>Cant</th>
+                        <th>Descripción</th>
+                        <th style="text-align: right;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for det in venta.detalles.all %}
+                    <tr>
+                        <td style="width: 35px; vertical-align: top;">{{ det.cantidad }}x</td>
+                        <td>
+                            {{ det.plato.nombre }}
+                            {% if det.observacion %}
+                                <small style="display: block; font-size: 0.75rem; color: #555;">({{ det.observacion }})</small>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: right; vertical-align: top;">Bs. {{ det.subtotal|floatformat:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="receipt-total">
+                TOTAL: Bs. {{ venta.total_venta|floatformat:2 }}
+            </div>
+            <p style="text-align: center; font-size: 0.75rem; margin-top: 18px; color: #555;">
+                ¡Gracias por su visita!
+            </p>
+        </div>
+    </div>
+</body>
+</html>

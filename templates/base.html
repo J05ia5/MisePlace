@@ -1,0 +1,97 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MisePlace{% endblock %} - Gestión Gastronómica</title>
+    <!-- Fuente Inter limpia -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/estilos.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div id="app-container">
+        {% if user.is_authenticated %}
+        <!-- Barra de navegación superior -->
+        <header class="top-nav">
+            <div class="brand-section">
+                <a href="{% url 'usuarios:inicio_por_rol' %}" class="brand-logo" title="Inicio MisePlace">MP</a>
+                <div class="brand-info">
+                    <h1>MisePlace</h1>
+                    <p>Gestión Gastronómica</p>
+                </div>
+            </div>
+
+            <nav class="nav-links" aria-label="Navegación principal">
+                {% if user.puede_acceder_pos %}
+                <a href="{% url 'ventas:pos' %}" class="nav-link {% if request.resolver_match.app_name == 'ventas' %}activo{% endif %}">
+                    Menú virtual
+                </a>
+                {% endif %}
+
+                {% if user.puede_acceder_reportes %}
+                <a href="{% url 'reportes:dashboard' %}" class="nav-link {% if request.resolver_match.app_name == 'reportes' %}activo{% endif %}">
+                    Reportes
+                </a>
+                {% endif %}
+
+                {% if user.puede_acceder_inventario %}
+                <a href="{% url 'inventario:lista' %}" class="nav-link {% if request.resolver_match.app_name == 'inventario' and request.resolver_match.url_name == 'lista' %}activo{% endif %}">
+                    Inventario
+                </a>
+                {% endif %}
+
+                {% if user.puede_acceder_recetas %}
+                <a href="{% url 'recetas:lista' %}" class="nav-link {% if request.resolver_match.app_name == 'recetas' %}activo{% endif %}">
+                    Recetas
+                </a>
+                {% endif %}
+            </nav>
+
+            <div class="nav-user-section">
+                {% if user.puede_acceder_inventario and total_alertas_stock > 0 %}
+                <a href="{% url 'inventario:alertas' %}" class="badge-alertas" title="Ver insumos que requieren reabastecimiento">
+                    <span>Alertas</span>
+                    <span class="badge badge-warning">{{ total_alertas_stock }}</span>
+                </a>
+                {% endif %}
+
+                <div class="user-badge" title="{{ user.email }}">
+                    <span>{{ user.get_rol_display }}</span>
+                </div>
+
+                <form action="{% url 'usuarios:logout' %}" method="post" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-salir" title="Cerrar sesión">Salir</button>
+                </form>
+            </div>
+        </header>
+        {% endif %}
+
+        <!-- Mensajes Flash de Django -->
+        {% if messages %}
+        <div class="messages-container">
+            {% for message in messages %}
+            <div class="alert {% if message.tags == 'success' %}alert-success{% elif message.tags == 'error' %}alert-error{% else %}alert-warning{% endif %}" role="alert">
+                <span>{{ message }}</span>
+                <button type="button" class="modal-close-btn" onclick="this.parentElement.remove()" aria-label="Cerrar">&times;</button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Contenido dinámico de cada vista -->
+        <main id="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    {% if user.is_authenticated %}
+    <script src="{% static 'js/sync.js' %}"></script>
+    {% endif %}
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

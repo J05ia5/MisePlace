@@ -1,0 +1,424 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Reportes Operativos y Ventas{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <h2>{% if es_admin %}Reportes de Consumo y Ventas{% else %}Reporte de Inventario{% endif %}</h2>
+        <p>{% if es_admin %}Resumen ejecutivo de ventas, desempeño de productos y existencias de almacén.{% else %}Seguimiento operativo de insumos y compras sugeridas.{% endif %}</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="btnModalCompras">
+            ⚠️ Compras / Alertas {% if stock_bajo_total > 0 %}<span class="badge badge-warning">{{ stock_bajo_total }}</span>{% endif %}
+        </button>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start; margin-bottom: 24px;">
+    <!-- TARJETA 1: Menor Inventario (Insumos más bajos) -->
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-header">
+            <div>
+                <h3>Menor Inventario</h3>
+                <span class="subtitle">{{ inventario|length }} insumos · {{ stock_bajo_total }} con stock bajo</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnModalInventario">Ver Todo</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            {% for st in inventario_visible %}
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; background: {% if st.estado == 'critico' %}var(--danger-bg){% elif st.estado == 'bajo' %}var(--warning-bg){% else %}var(--bg-subtle){% endif %}; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-muted); width: 18px;">{{ forloop.counter }}</span>
+                    <div>
+                        <strong style="font-size: 0.85rem; color: var(--text-primary); display: block;">{{ st.nombre }}</strong>
+                        <span style="font-size: 0.725rem; color: var(--text-secondary);">{{ st.unidad_medida }}</span>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <strong style="font-size: 0.95rem; color: {% if st.estado == 'critico' %}var(--danger-accent){% elif st.estado == 'bajo' %}var(--warning-accent){% else %}var(--text-primary){% endif %};">
+                        {{ st.stock_actual|floatformat:2 }}
+                    </strong>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">{{ st.unidad_medida }}</span>
+                </div>
+            </div>
+            {% empty %}
+            <p style="text-align: center; color: var(--text-muted); padding: 20px;">No hay insumos registrados.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if es_admin %}
+    <!-- TARJETA 2: Top 5 Productos más Vendidos -->
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-header">
+            <div>
+                <h3>Top 5 Productos Vendidos</h3>
+                <span class="subtitle">Ranking acumulado por unidades despachadas</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnModalVentas">Ver Todo</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            {% for v in ventas_visibles %}
+            {% widthratio v.total_unidades max_unidades 100 as porcentaje %}
+            <div style="padding: 6px 0;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+                    <div>
+                        <span style="font-weight: 700; color: var(--text-muted); margin-right: 6px;">{{ forloop.counter }}.</span>
+                        <strong>{{ v.plato }}</strong>
+                    </div>
+                    <div>
+                        <span>{{ v.total_unidades }} uds.</span>
+                        <strong style="color: var(--brand-primary); margin-left: 8px;">Bs. {{ v.total_ingresos|floatformat:2 }}</strong>
+                    </div>
+                </div>
+                <div style="height: 6px; background: var(--bg-subtle); border-radius: var(--radius-full); overflow: hidden;">
+                    <div style="height: 100%; width: {{ porcentaje }}%; background: var(--brand-primary); border-radius: var(--radius-full);"></div>
+                </div>
+            </div>
+            {% empty %}
+            <p style="text-align: center; color: var(--text-muted); padding: 20px;">No hay ventas registradas.</p>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{% if es_admin %}
+<!-- TARJETA 3: Gráfica Semanal de Ingresos -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3>Historial Semanal de Ingresos</h3>
+            <span class="subtitle">{{ inicio_semana|date:"d/m/Y" }} al {{ fin_semana|date:"d/m/Y" }}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="text-align: right;">
+                <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Total semana</span>
+                <strong style="color: var(--brand-primary); font-size: 1.1rem;">Bs. {{ ingreso_semana|floatformat:2 }}</strong>
+                <small style="color: var(--text-secondary);">({{ unidades_semana }} unidades)</small>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnModalHistorial">Ver Historial</button>
+        </div>
+    </div>
+
+    <!-- Canvas de la Gráfica interactiva -->
+    <div style="width: 100%; height: 260px; position: relative;">
+        <canvas id="graficaSemanal" style="width: 100%; height: 100%;"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- MODAL 1: Compras / Alertas -->
+<div class="modal-backdrop" id="modalCompras" role="dialog" aria-modal="true" aria-labelledby="tituloModalCompras">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span class="subtitle">Nivel objetivo sugerido: 10 unidades</span>
+                <h3 id="tituloModalCompras">Insumos con Stock Bajo / Alertas</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalCompras">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Insumo</th>
+                            <th>Stock Actual</th>
+                            <th>Compra Sugerida</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ins in insumos_sugeridos %}
+                        <tr>
+                            <td><strong>{{ ins.nombre }}</strong></td>
+                            <td>
+                                <span class="badge {% if ins.estado == 'critico' %}badge-danger{% else %}badge-warning{% endif %}">
+                                    {{ ins.stock_actual|floatformat:2 }} {{ ins.unidad_medida }}
+                                </span>
+                            </td>
+                            <td>
+                                <strong style="color: var(--brand-primary);">
+                                    + {{ ins.compra_sugerida|floatformat:2 }} {{ ins.unidad_medida }}
+                                </strong>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 25px;">
+                                No hay compras urgentes requeridas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="window.print()">Imprimir Lista</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 2: Inventario Completo -->
+<div class="modal-backdrop" id="modalInventarioCompleto" role="dialog" aria-modal="true" aria-labelledby="tituloModalInventario">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span class="subtitle">Ordenado de menor a mayor existencia</span>
+                <h3 id="tituloModalInventario">Inventario Completo</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalInventario">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Insumo</th>
+                            <th>Unidad</th>
+                            <th>Stock Actual</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for st in inventario %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td><strong>{{ st.nombre }}</strong></td>
+                            <td>{{ st.unidad_medida }}</td>
+                            <td><strong>{{ st.stock_actual|floatformat:2 }}</strong></td>
+                            <td>
+                                <span class="badge {% if st.estado == 'critico' %}badge-danger{% elif st.estado == 'bajo' %}badge-warning{% else %}badge-success{% endif %}">
+                                    {{ st.estado_texto }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if es_admin %}
+<!-- MODAL 3: Ventas por Producto -->
+<div class="modal-backdrop" id="modalVentasProductos" role="dialog" aria-modal="true" aria-labelledby="tituloModalVentas">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span class="subtitle">Acumulado histórico total</span>
+                <h3 id="tituloModalVentas">Ventas Acumuladas por Producto</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalVentas">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Plato o Producto</th>
+                            <th>Precio Unitario</th>
+                            <th>Unidades Vendidas</th>
+                            <th>Total Generado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in ventas_por_producto %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td><strong>{{ v.plato }}</strong></td>
+                            <td>Bs. {{ v.precio_venta|floatformat:2 }}</td>
+                            <td>{{ v.total_unidades }}</td>
+                            <td><strong style="color: var(--brand-primary);">Bs. {{ v.total_ingresos|floatformat:2 }}</strong></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 25px;">No hay ventas registradas.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 4: Historial Completo de Ventas -->
+<div class="modal-backdrop" id="modalHistorialCompleto" role="dialog" aria-modal="true" aria-labelledby="tituloModalHistorialCompleto">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span class="subtitle">Movimientos más recientes primero</span>
+                <h3 id="tituloModalHistorialCompleto">Historial Completo de Ventas</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalHistorialCompleto">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Venta</th>
+                            <th>Producto</th>
+                            <th>Cantidad</th>
+                            <th>Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for dv in historial_ventas %}
+                        <tr>
+                            <td>{{ dv.venta.fecha_venta|date:"d/m/Y" }}</td>
+                            <td>#{{ dv.venta.id }}</td>
+                            <td><strong>{{ dv.plato.nombre }}</strong></td>
+                            <td>{{ dv.cantidad }}</td>
+                            <td><strong>Bs. {{ dv.subtotal|floatformat:2 }}</strong></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 25px;">No hay ventas registradas.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Modales
+    const mCompras = document.getElementById('modalCompras');
+    const mInventario = document.getElementById('modalInventarioCompleto');
+    const mVentas = document.getElementById('modalVentasProductos');
+    const mHistorial = document.getElementById('modalHistorialCompleto');
+
+    document.getElementById('btnModalCompras')?.addEventListener('click', () => mCompras.classList.add('is-open'));
+    document.getElementById('cerrarModalCompras')?.addEventListener('click', () => mCompras.classList.remove('is-open'));
+
+    document.getElementById('btnModalInventario')?.addEventListener('click', () => mInventario.classList.add('is-open'));
+    document.getElementById('cerrarModalInventario')?.addEventListener('click', () => mInventario.classList.remove('is-open'));
+
+    document.getElementById('btnModalVentas')?.addEventListener('click', () => mVentas?.classList.add('is-open'));
+    document.getElementById('cerrarModalVentas')?.addEventListener('click', () => mVentas?.classList.remove('is-open'));
+
+    document.getElementById('btnModalHistorial')?.addEventListener('click', () => mHistorial?.classList.add('is-open'));
+    document.getElementById('cerrarModalHistorialCompleto')?.addEventListener('click', () => mHistorial?.classList.remove('is-open'));
+
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+        modal.addEventListener('click', e => {
+            if (e.target === modal) modal.classList.remove('is-open');
+        });
+    });
+
+    // Render de Gráfica Semanal (Canvas nativo, de alto rendimiento y responsive)
+    {% if es_admin %}
+    const datosSemana = {{ datos_semana|safe }};
+    const canvas = document.getElementById('graficaSemanal');
+
+    function dibujarGrafica() {
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        const padding = { top: 20, right: 25, bottom: 40, left: 65 };
+        const chartWidth = rect.width - padding.left - padding.right;
+        const chartHeight = rect.height - padding.top - padding.bottom;
+
+        const valores = datosSemana.map(d => d.ingresos);
+        const maxValor = Math.max(...valores, 0);
+        const topY = maxValor > 0 ? Math.ceil(maxValor * 1.15) : 100;
+
+        ctx.font = '11px Inter, sans-serif';
+        ctx.lineWidth = 1;
+
+        // Líneas guía horizontales
+        for (let l = 0; l <= 4; l++) {
+            const y = padding.top + (chartHeight / 4) * l;
+            const val = topY - (topY / 4) * l;
+
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(rect.width - padding.right, y);
+            ctx.stroke();
+
+            ctx.fillStyle = '#64748b';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Bs. ' + Math.round(val), padding.left - 10, y);
+        }
+
+        // Puntos de la serie
+        const puntos = datosSemana.map((d, idx) => {
+            const x = padding.left + (chartWidth / (datosSemana.length - 1)) * idx;
+            const y = padding.top + chartHeight - (d.ingresos / topY) * chartHeight;
+
+            // Etiquetas del eje X
+            ctx.fillStyle = '#334155';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(d.dia, x, rect.height - 30);
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillText(d.fecha, x, rect.height - 16);
+
+            return { x, y, ingresos: d.ingresos };
+        });
+
+        // Línea principal con estilo brand
+        ctx.strokeStyle = '#991b1b';
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        puntos.forEach((p, idx) => {
+            if (idx === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+
+        // Nodos y tooltips
+        puntos.forEach(p => {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#991b1b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            if (p.ingresos > 0) {
+                ctx.fillStyle = '#7f1d1d';
+                ctx.font = '600 11px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('Bs. ' + Math.round(p.ingresos), p.x, p.y - 8);
+                ctx.font = '11px Inter, sans-serif';
+            }
+        });
+    }
+
+    window.addEventListener('resize', dibujarGrafica);
+    dibujarGrafica();
+    {% endif %}
+</script>
+{% endblock %}

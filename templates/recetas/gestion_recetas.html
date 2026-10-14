@@ -1,0 +1,368 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Gestión de Recetas{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <h2>Gestión de Recetas</h2>
+        <p>Configuración de platos, precios de venta e ingredientes a descontar automáticamente.</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-secondary" onclick="limpiarFormularioReceta()">
+            + Nueva Receta
+        </button>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 460px 1fr; gap: 20px; align-items: start;">
+    <!-- COLUMNA IZQUIERDA: Formulario de Creación / Edición de Receta -->
+    <div class="card" id="tarjetaFormularioReceta">
+        <div class="card-header">
+            <div>
+                <h3 id="tituloFormReceta">Crear Nueva Receta</h3>
+                <span class="subtitle">Define los insumos que componen la porción</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="limpiarFormularioReceta()">Limpiar</button>
+        </div>
+
+        <form id="formReceta" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" id="recetaPlatoId" name="id_plato" value="">
+
+            <div class="form-group">
+                <label for="nombrePlato">Nombre del Plato o Producto *</label>
+                <input type="text" id="nombrePlato" name="nombreplato" class="form-input" placeholder="Ej: Hamburguesa Especial" required>
+            </div>
+
+            <div class="form-group">
+                <label for="precioVenta">Precio de Venta (Bs.) *</label>
+                <input type="number" id="precioVenta" name="precioventa" step="0.01" min="0.01" class="form-input" placeholder="Ej: 35.00" required>
+            </div>
+
+            <div class="form-group">
+                <label for="imagenPlato">Imagen del Plato (Opcional)</label>
+                <input type="file" id="imagenPlato" name="imagen" class="form-input" accept="image/jpeg,image/png,image/webp">
+                <small class="form-help">JPG, PNG o WEBP. Máximo 3 MB.</small>
+                <div id="contenedorPreviewImg" style="display: none; margin-top: 8px;">
+                    <img id="imgPreview" src="" alt="Vista previa" style="max-height: 100px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <label style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary);">Ingredientes requeridos *</label>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="agregarFilaIngrediente()">+ Insumo</button>
+                </div>
+
+                <div id="filasIngredientes" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Se inyectan filas dinámicas -->
+                </div>
+            </div>
+
+            <div id="mensajeEstadoReceta" style="margin-bottom: 12px;"></div>
+
+            <button type="submit" class="btn btn-primary btn-block" id="btnGuardarReceta" style="padding: 11px;">
+                Registrar Receta
+            </button>
+        </form>
+    </div>
+
+    <!-- COLUMNA DERECHA: Listado de Recetas Existentes -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3>Catálogo de Recetas</h3>
+                <span class="subtitle">{{ platos.count }} platos en menú</span>
+            </div>
+            <input type="search" id="buscarRecetaCatalogo" placeholder="Filtrar recetas..." class="form-input" style="max-width: 220px; padding: 6px 10px; font-size: 0.8rem;">
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;" id="contenedorListaRecetas">
+            {% for plato in platos %}
+            <div class="card item-receta-card" style="margin-bottom: 0; padding: 14px;" data-nombre="{{ plato.nombre|lower }}">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        {% if plato.imagen %}
+                            <img src="{{ plato.imagen.url }}" alt="{{ plato.nombre }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                        {% else %}
+                            <div style="width: 44px; height: 44px; background: var(--bg-subtle); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; border-radius: var(--radius-sm);">
+                                🍽️
+                            </div>
+                        {% endif %}
+                        <div>
+                            <strong style="font-size: 0.95rem; color: var(--text-primary); display: block;">{{ plato.nombre }}</strong>
+                            <span style="font-size: 0.85rem; font-weight: 700; color: var(--brand-primary);">Bs. {{ plato.precio_venta|floatformat:2 }}</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 8px;">{{ plato.ingredientes.count }} ingredientes</span>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="cargarRecetaParaEdicion({{ plato.id }})">
+                            Editar
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="abrirModalEliminar({{ plato.id }}, '{{ plato.nombre|escapejs }}')">
+                            Eliminar
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleDetalleIngredientes({{ plato.id }})" title="Ver ingredientes">
+                            ▼
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Detalle de ingredientes desplegable -->
+                <div id="detallePlato{{ plato.id }}" style="display: none; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color);">
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        {% for ing in plato.ingredientes.all %}
+                            <span class="badge badge-subtle" style="font-size: 0.775rem;">
+                                {{ ing.insumo.nombre }}: <strong>{{ ing.cantidad_necesaria|floatformat:2 }} {{ ing.insumo.unidad_medida }}</strong>
+                            </span>
+                        {% empty %}
+                            <span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Sin ingredientes asignados.</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <p style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+                No hay recetas registradas todavía. Crea la primera usando el formulario.
+            </p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: Confirmar Eliminación de Receta -->
+<div class="modal-backdrop" id="modalEliminarReceta" role="dialog" aria-modal="true" aria-labelledby="tituloModalEliminar">
+    <div class="modal-box" style="max-width: 420px;">
+        <div class="modal-header">
+            <h3 id="tituloModalEliminar">Eliminar Receta</h3>
+            <button type="button" class="modal-close-btn" id="cerrarModalEliminar">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 0.9rem; color: var(--text-secondary);">
+                ¿Estás seguro de que deseas eliminar la receta <strong id="nombrePlatoEliminar"></strong>?
+            </p>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">
+                Nota: Si el plato ya tiene ventas históricas asociadas, el sistema protegerá la integridad de los datos impidiendo su eliminación.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="btnCancelarEliminar">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="btnConfirmarEliminar">Eliminar Receta</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let insumosDisponibles = [];
+    let platoIdAEliminar = null;
+
+    // Cargar catálogo de insumos para los desplegables dinámicos
+    async function cargarInsumosBase() {
+        try {
+            const res = await fetch("{% url 'recetas:api_insumos' %}");
+            insumosDisponibles = await res.json();
+            // Si el formulario está vacío, inicializar con una fila
+            if (document.querySelectorAll('.fila-ingrediente').length === 0) {
+                agregarFilaIngrediente();
+            }
+        } catch (e) {
+            console.error("Error al cargar insumos:", e);
+        }
+    }
+    cargarInsumosBase();
+
+    function generarOpcionesInsumos(idSeleccionado = '') {
+        let options = '<option value="">Seleccionar insumo...</option>';
+        insumosDisponibles.forEach(i => {
+            const selected = (String(i.id) === String(idSeleccionado)) ? 'selected' : '';
+            options += `<option value="${i.id}" data-unidad="${i.unidad_medida}" ${selected}>${i.nombre}</option>`;
+        });
+        return options;
+    }
+
+    function agregarFilaIngrediente(idInsumo = '', cantidad = '') {
+        const contenedor = document.getElementById('filasIngredientes');
+        const fila = document.createElement('div');
+        fila.className = 'fila-ingrediente';
+        fila.style.display = 'grid';
+        fila.style.gridTemplateColumns = '1fr 90px 70px 32px';
+        fila.style.gap = '6px';
+        fila.style.alignItems = 'center';
+
+        fila.innerHTML = `
+            <select name="insumo[]" class="form-select select-insumo" onchange="actualizarUnidadFila(this)" required>
+                ${generarOpcionesInsumos(idInsumo)}
+            </select>
+            <input type="number" name="cantidad[]" step="0.01" min="0.01" class="form-input input-cant-ingrediente" placeholder="Cant." value="${cantidad}" required>
+            <input type="text" class="form-input input-unidad-ingrediente" readonly placeholder="Und." style="font-size: 0.75rem; text-align: center;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="eliminarFilaIngrediente(this)" title="Quitar insumo" style="padding: 4px; height: 36px;">✕</button>
+        `;
+
+        contenedor.appendChild(fila);
+        const sel = fila.querySelector('.select-insumo');
+        if (idInsumo) {
+            actualizarUnidadFila(sel);
+        }
+    }
+
+    window.actualizarUnidadFila = function(select) {
+        const fila = select.closest('.fila-ingrediente');
+        const inputUnidad = fila.querySelector('.input-unidad-ingrediente');
+        const opt = select.options[select.selectedIndex];
+        inputUnidad.value = opt ? (opt.dataset.unidad || '') : '';
+    };
+
+    window.eliminarFilaIngrediente = function(btn) {
+        const filas = document.querySelectorAll('.fila-ingrediente');
+        if (filas.length > 1) {
+            btn.closest('.fila-ingrediente').remove();
+        } else {
+            alert('La receta debe contener al menos un ingrediente.');
+        }
+    };
+
+    function limpiarFormularioReceta() {
+        document.getElementById('formReceta').reset();
+        document.getElementById('recetaPlatoId').value = '';
+        document.getElementById('tituloFormReceta').textContent = 'Crear Nueva Receta';
+        document.getElementById('btnGuardarReceta').textContent = 'Registrar Receta';
+        document.getElementById('mensajeEstadoReceta').innerHTML = '';
+        document.getElementById('contenedorPreviewImg').style.display = 'none';
+        document.getElementById('filasIngredientes').innerHTML = '';
+        agregarFilaIngrediente();
+    }
+
+    // Previsualización de imagen seleccionada
+    document.getElementById('imagenPlato').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                document.getElementById('imgPreview').src = evt.target.result;
+                document.getElementById('contenedorPreviewImg').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Cargar datos de una receta para edición
+    window.cargarRecetaParaEdicion = async function(platoId) {
+        try {
+            const res = await fetch(`/recetas/api/${platoId}/`);
+            if (!res.ok) throw new Error("No se pudo cargar la receta");
+            const data = await res.json();
+
+            document.getElementById('recetaPlatoId').value = data.id;
+            document.getElementById('nombrePlato').value = data.nombre;
+            document.getElementById('precioVenta').value = data.precio_venta;
+            document.getElementById('tituloFormReceta').textContent = 'Editar Receta: ' + data.nombre;
+            document.getElementById('btnGuardarReceta').textContent = 'Guardar Cambios';
+
+            if (data.imagen_url) {
+                document.getElementById('imgPreview').src = data.imagen_url;
+                document.getElementById('contenedorPreviewImg').style.display = 'block';
+            } else {
+                document.getElementById('contenedorPreviewImg').style.display = 'none';
+            }
+
+            // Cargar ingredientes
+            const contenedor = document.getElementById('filasIngredientes');
+            contenedor.innerHTML = '';
+            if (data.ingredientes && data.ingredientes.length > 0) {
+                data.ingredientes.forEach(ing => {
+                    agregarFilaIngrediente(ing.id_insumo, ing.cantidad_necesaria);
+                });
+            } else {
+                agregarFilaIngrediente();
+            }
+
+            document.getElementById('tarjetaFormularioReceta').scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            alert("Error al cargar la receta: " + err.message);
+        }
+    };
+
+    // Guardar receta vía AJAX
+    document.getElementById('formReceta').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const msgBox = document.getElementById('mensajeEstadoReceta');
+        msgBox.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">Guardando receta...</span>';
+
+        const formData = new FormData(this);
+
+        try {
+            const res = await fetch("{% url 'recetas:api_guardar_receta' %}", {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: formData
+            });
+            const data = await res.json();
+
+            if (data.ok) {
+                msgBox.innerHTML = `<span style="color: var(--success-accent); font-weight: 600; font-size: 0.85rem;">${data.mensaje}</span>`;
+                setTimeout(() => {
+                    window.location.reload();
+                }, 800);
+            } else {
+                msgBox.innerHTML = `<span style="color: var(--danger-accent); font-weight: 600; font-size: 0.85rem;">${data.mensaje}</span>`;
+            }
+        } catch (err) {
+            msgBox.innerHTML = '<span style="color: var(--danger-accent); font-weight: 600; font-size: 0.85rem;">Error de red al guardar la receta.</span>';
+        }
+    });
+
+    // Desplegar / Ocultar detalle de ingredientes en tarjeta
+    window.toggleDetalleIngredientes = function(platoId) {
+        const div = document.getElementById('detallePlato' + platoId);
+        div.style.display = (div.style.display === 'none' || div.style.display === '') ? 'block' : 'none';
+    };
+
+    // Modal Eliminar Receta
+    const modalEliminar = document.getElementById('modalEliminarReceta');
+    window.abrirModalEliminar = function(id, nombre) {
+        platoIdAEliminar = id;
+        document.getElementById('nombrePlatoEliminar').textContent = nombre;
+        modalEliminar.classList.add('is-open');
+    };
+
+    document.getElementById('cerrarModalEliminar').addEventListener('click', () => modalEliminar.classList.remove('is-open'));
+    document.getElementById('btnCancelarEliminar').addEventListener('click', () => modalEliminar.classList.remove('is-open'));
+
+    document.getElementById('btnConfirmarEliminar').addEventListener('click', async () => {
+        if (!platoIdAEliminar) return;
+        try {
+            const res = await fetch(`/recetas/api/eliminar/${platoIdAEliminar}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            });
+            const data = await res.json();
+            if (data.ok) {
+                window.location.reload();
+            } else {
+                alert(data.mensaje);
+                modalEliminar.classList.remove('is-open');
+            }
+        } catch (err) {
+            alert("Error al intentar eliminar la receta: " + err.message);
+        }
+    });
+
+    // Filtrar catálogo de recetas en vivo
+    document.getElementById('buscarRecetaCatalogo').addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        document.querySelectorAll('.item-receta-card').forEach(card => {
+            const match = card.dataset.nombre.includes(q);
+            card.style.display = match ? 'block' : 'none';
+        });
+    });
+</script>
+{% endblock %}

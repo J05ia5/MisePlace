@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Compras Sugeridas{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <h2>Compras Sugeridas</h2>
+        <p>Insumos críticos o por debajo del mínimo que requieren reposición para alcanzar el nivel objetivo.</p>
+    </div>
+    <div class="page-actions no-print">
+        <button type="button" class="btn btn-secondary" onclick="window.print()">
+            🖨️ Imprimir Lista
+        </button>
+        <a href="{% url 'inventario:lista' %}" class="btn btn-primary">
+            + Registrar Ingreso
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3>Lista de Reposición Prioritaria</h3>
+            <span class="subtitle">Nivel objetivo de referencia: 10.00 en la unidad correspondiente</span>
+        </div>
+        <span class="badge badge-warning">{{ total_alertas }} insumos sugeridos</span>
+    </div>
+
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Insumo</th>
+                    <th>Stock Actual</th>
+                    <th>Nivel Objetivo</th>
+                    <th>Compra Sugerida</th>
+                    <th class="no-print" style="text-align: right;">Acción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ins in insumos_sugeridos %}
+                <tr>
+                    <td><strong>{{ ins.nombre }}</strong></td>
+                    <td>
+                        <span class="badge {% if ins.estado == 'critico' %}badge-danger{% else %}badge-warning{% endif %}">
+                            {{ ins.stock_actual|floatformat:2 }} {{ ins.unidad_medida }}
+                        </span>
+                    </td>
+                    <td>{{ ins.stock_objetivo|floatformat:2 }} {{ ins.unidad_medida }}</td>
+                    <td>
+                        <strong style="color: var(--brand-primary); font-size: 1rem;">
+                            + {{ ins.compra_sugerida|floatformat:2 }} {{ ins.unidad_medida }}
+                        </strong>
+                    </td>
+                    <td class="no-print" style="text-align: right;">
+                        <a href="{% url 'inventario:lista' %}" class="btn btn-secondary btn-sm">
+                            Comprar
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 35px;">
+                        🎉 No hay insumos en estado crítico. Todo el stock se encuentra en niveles adecuados.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

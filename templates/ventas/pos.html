@@ -1,0 +1,534 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Menú Virtual POS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <h2>Menú Virtual POS</h2>
+        <p>Selecciona los platos para armar pedidos y registrar ventas.</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-secondary" id="btnAbrirHistorial">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            Ventas del día ({{ ventas_dia.count }})
+        </button>
+    </div>
+</div>
+
+<div class="pos-container">
+    <!-- Columna Izquierda: Catálogo de Productos -->
+    <div class="card" style="padding: 16px;">
+        <div class="search-input-wrap">
+            <input type="search" id="inputBuscarPlato" placeholder="Buscar plato o producto por nombre..." autocomplete="off">
+        </div>
+
+        <div class="dishes-grid" id="contenedorPlatos">
+            {% for plato in platos %}
+            {% with disponibles=plato.calcular_porciones_disponibles %}
+            <div class="dish-card"
+                 data-id="{{ plato.id }}"
+                 data-nombre="{{ plato.nombre }}"
+                 data-precio="{{ plato.precio_venta }}"
+                 data-disponibles="{{ disponibles }}">
+                <div class="dish-card-img-wrap">
+                    {% if plato.imagen %}
+                        <img src="{{ plato.imagen.url }}" alt="{{ plato.nombre }}" loading="lazy">
+                    {% else %}
+                        <span class="dish-placeholder-icon">🍽️</span>
+                    {% endif %}
+                </div>
+                <div class="dish-info">
+                    <h4>{{ plato.nombre }}</h4>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                        <span class="dish-price">Bs. {{ plato.precio_venta|floatformat:2 }}</span>
+                        {% if disponibles > 0 and disponibles < 999 %}
+                            <span class="badge {% if disponibles <= 3 %}badge-warning{% else %}badge-subtle{% endif %}" style="font-size: 0.7rem;">
+                                {{ disponibles }} disp.
+                            </span>
+                        {% elif disponibles == 0 %}
+                            <span class="badge badge-danger" style="font-size: 0.7rem;">Sin stock</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endwith %}
+            {% empty %}
+            <p style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px 0;">
+                No hay platos registrados en el menú.
+            </p>
+            {% endfor %}
+        </div>
+        <p id="sinResultadosBusqueda" style="display: none; text-align: center; color: var(--text-muted); padding: 30px 0;">
+            No se encontraron productos que coincidan con la búsqueda.
+        </p>
+    </div>
+
+    <!-- Columna Derecha: Panel de Pedido -->
+    <div class="order-panel">
+        <div class="order-header">
+            <div>
+                <h3 style="font-size: 1rem; font-weight: 700;">Pedido Actual</h3>
+                <span id="contadorProductosPedido" style="font-size: 0.75rem; color: var(--text-muted);">0 productos</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnVaciarPedido" style="display: none;">Vaciar</button>
+        </div>
+
+        <div class="order-items-list" id="listaItemsPedido">
+            <div id="pedidoVacio" style="text-align: center; color: var(--text-muted); margin: auto; padding: 30px 10px;">
+                <p style="font-size: 2rem; margin-bottom: 8px;">🛒</p>
+                <p style="font-size: 0.85rem;">Selecciona un plato del menú para comenzar el pedido.</p>
+            </div>
+        </div>
+
+        <div class="order-footer">
+            <div class="order-total-row">
+                <span style="color: var(--text-secondary); font-size: 0.95rem;">Total a cobrar:</span>
+                <span id="totalPedidoTexto" style="color: var(--brand-primary); font-size: 1.3rem;">Bs. 0.00</span>
+            </div>
+            <button type="button" class="btn btn-primary btn-block" id="btnConfirmarPedido" disabled style="padding: 12px; font-size: 0.95rem;">
+                Confirmar Pedido
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 1: Personalizar / Agregar Producto al Pedido -->
+<div class="modal-backdrop" id="modalProducto" role="dialog" aria-modal="true" aria-labelledby="modalProductoTitulo">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="modalProductoTitulo">Plato</h3>
+            <button type="button" class="modal-close-btn" id="cerrarModalProducto">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="modalProductoId">
+            <div class="form-group">
+                <label for="modalCantidad">Cantidad de platos</label>
+                <input type="number" id="modalCantidad" class="form-input" min="1" step="1" value="1">
+            </div>
+
+            <!-- Previsualización de Insumos que se descontarán -->
+            <div class="recipe-preview-box" id="modalVistaReceta">
+                <strong>Insumos a descontar del inventario:</strong>
+                <p style="color: var(--text-muted);">Cargando receta...</p>
+            </div>
+
+            <div class="form-group">
+                <label for="modalObservacion">Observación especial (Opcional)</label>
+                <textarea id="modalObservacion" class="form-textarea" rows="2" placeholder="Ej: Sin cebolla, término medio, etc."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="btnCancelarProducto">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btnGuardarProducto">Agregar al Pedido</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 2: Método de Pago y Registro -->
+<div class="modal-backdrop" id="modalPago" role="dialog" aria-modal="true" aria-labelledby="modalPagoTitulo">
+    <div class="modal-box" style="max-width: 440px;">
+        <div class="modal-header">
+            <h3 id="modalPagoTitulo">Confirmar Venta</h3>
+            <button type="button" class="modal-close-btn" id="cerrarModalPago">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 16px;">
+                Selecciona el método de pago para registrar la venta y descontar automáticamente los insumos correspondientes.
+            </p>
+            <div style="background: var(--bg-subtle); padding: 14px; border-radius: var(--radius-sm); margin-bottom: 20px; text-align: center;">
+                <span style="font-size: 0.8rem; color: var(--text-muted); display: block;">Monto Total</span>
+                <strong id="montoTotalPago" style="font-size: 1.6rem; color: var(--text-primary);">Bs. 0.00</strong>
+            </div>
+
+            <form action="{% url 'ventas:procesar_venta' %}" method="post" id="formCheckout">
+                {% csrf_token %}
+                <input type="hidden" name="items" id="inputItemsVenta">
+                <input type="hidden" name="metodo_pago" id="inputMetodoPago" value="Efectivo">
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                    <button type="button" class="btn btn-secondary btn-pago-selector activo" data-metodo="Efectivo" style="padding: 14px; flex-direction: column; gap: 4px;">
+                        <span style="font-size: 1.4rem;">💵</span>
+                        <span>Efectivo</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-pago-selector" data-metodo="QR" style="padding: 14px; flex-direction: column; gap: 4px;">
+                        <span style="font-size: 1.4rem;">📱</span>
+                        <span>Pago QR</span>
+                    </button>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" style="padding: 12px; font-size: 0.95rem; margin-top: 10px;">
+                    Registrar Venta
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 3: Historial de Ventas del Día -->
+<div class="modal-backdrop" id="modalHistorialVentas" role="dialog" aria-modal="true" aria-labelledby="modalHistorialTitulo">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Consulta Diaria</span>
+                <h3 id="modalHistorialTitulo">Ventas del Día</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalHistorial">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form method="get" style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 16px;">
+                <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                    <label for="fechaHistorialInput">Fecha</label>
+                    <input type="date" id="fechaHistorialInput" name="fecha" value="{{ fecha_historial }}" class="form-input">
+                </div>
+                <button type="submit" class="btn btn-secondary">Consultar</button>
+            </form>
+
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Venta</th>
+                            <th>Hora</th>
+                            <th>Productos / Unidades</th>
+                            <th>Pago</th>
+                            <th>Total</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in ventas_dia %}
+                        <tr>
+                            <td><strong>#{{ v.id }}</strong></td>
+                            <td>{{ v.fecha_hora|date:"H:i" }}</td>
+                            <td>
+                                {{ v.unidades_totales }} uds.
+                                <small style="display: block; color: var(--text-muted);">
+                                    {% for det in v.detalles.all %}
+                                        {{ det.cantidad }}x {{ det.plato.nombre }}{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                </small>
+                            </td>
+                            <td><span class="badge badge-subtle">{{ v.metodo_pago }}</span></td>
+                            <td><strong style="color: var(--brand-primary);">Bs. {{ v.total_venta|floatformat:2 }}</strong></td>
+                            <td>
+                                <a href="{% url 'ventas:pos' %}?venta={{ v.id }}&fecha={{ fecha_historial }}" class="btn btn-secondary btn-sm">
+                                    Ver Ticket
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 25px;">
+                                No hay ventas registradas en esta fecha.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 4: Comprobante / Ticket de Venta -->
+{% if venta_recibo %}
+<div class="modal-backdrop is-open" id="modalRecibo" role="dialog" aria-modal="true" aria-labelledby="modalReciboTitulo">
+    <div class="modal-box" style="max-width: 440px;">
+        <div class="modal-header no-print">
+            <h3 id="modalReciboTitulo">Comprobante de Venta</h3>
+            <button type="button" class="modal-close-btn" id="cerrarModalRecibo">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 16px;">
+            <div class="receipt-ticket" id="ticketImprimible">
+                <div class="receipt-center">
+                    <h2>MISEPLACE</h2>
+                    <p style="font-size: 0.8rem; font-weight: bold;">GESTIÓN GASTRONÓMICA</p>
+                    <div class="receipt-meta">
+                        COMPROBANTE DE VENTA #{{ venta_recibo.id }}<br>
+                        Fecha: {{ venta_recibo.fecha_hora|date:"d/m/Y H:i" }}<br>
+                        Pago: {{ venta_recibo.metodo_pago }}<br>
+                        {% if venta_recibo.usuario %}Atendido por: {{ venta_recibo.usuario.nombre|default:venta_recibo.usuario.email }}{% endif %}
+                    </div>
+                </div>
+
+                <table class="receipt-table">
+                    <thead>
+                        <tr>
+                            <th>Cant</th>
+                            <th>Descripción</th>
+                            <th style="text-align: right;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for det in venta_recibo.detalles.all %}
+                        <tr>
+                            <td style="width: 35px; vertical-align: top;">{{ det.cantidad }}x</td>
+                            <td>
+                                {{ det.plato.nombre }}
+                                {% if det.observacion %}
+                                    <small style="display: block; font-size: 0.75rem; color: #555;">({{ det.observacion }})</small>
+                                {% endif %}
+                            </td>
+                            <td style="text-align: right; vertical-align: top;">Bs. {{ det.subtotal|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <div class="receipt-total">
+                    TOTAL: Bs. {{ venta_recibo.total_venta|floatformat:2 }}
+                </div>
+                <p style="text-align: center; font-size: 0.75rem; margin-top: 18px; color: #555;">
+                    ¡Gracias por su preferencia!
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer no-print">
+            <button type="button" class="btn btn-secondary" onclick="window.print()">
+                🖨️ Imprimir Ticket
+            </button>
+            <button type="button" class="btn btn-primary" id="btnAceptarRecibo">
+                Continuar
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Datos de recetas cargados desde Django
+    const recetasData = JSON.parse('{{ recetas_json|escapejs }}');
+    let pedido = [];
+    let platoActual = null;
+    let indiceEditando = null;
+
+    // Elementos del DOM
+    const modalProducto = document.getElementById('modalProducto');
+    const modalPago = document.getElementById('modalPago');
+    const modalHistorial = document.getElementById('modalHistorialVentas');
+    const modalRecibo = document.getElementById('modalRecibo');
+
+    const modalProductoId = document.getElementById('modalProductoId');
+    const modalProductoTitulo = document.getElementById('modalProductoTitulo');
+    const modalCantidad = document.getElementById('modalCantidad');
+    const modalObservacion = document.getElementById('modalObservacion');
+    const modalVistaReceta = document.getElementById('modalVistaReceta');
+    const btnGuardarProducto = document.getElementById('btnGuardarProducto');
+
+    const listaItemsPedido = document.getElementById('listaItemsPedido');
+    const pedidoVacio = document.getElementById('pedidoVacio');
+    const contadorProductosPedido = document.getElementById('contadorProductosPedido');
+    const totalPedidoTexto = document.getElementById('totalPedidoTexto');
+    const btnConfirmarPedido = document.getElementById('btnConfirmarPedido');
+    const btnVaciarPedido = document.getElementById('btnVaciarPedido');
+
+    // Apertura y Cierre de Modales
+    function abrirModal(modal) {
+        modal.classList.add('is-open');
+    }
+    function cerrarModal(modal) {
+        modal.classList.remove('is-open');
+    }
+
+    // Actualizar vista previa de receta a descontar
+    function actualizarVistaReceta() {
+        const id = modalProductoId.value;
+        const cant = parseInt(modalCantidad.value) || 1;
+        const lista = recetasData[id];
+
+        if (!lista || lista.length === 0) {
+            modalVistaReceta.innerHTML = '<strong>Receta:</strong><p style="color: var(--text-muted);">Este producto no tiene insumos configurados.</p>';
+            return;
+        }
+
+        let html = '<strong>Insumos a descontar (' + cant + ' porción/es):</strong><ul>';
+        lista.forEach(ing => {
+            const total = (parseFloat(ing.cantidad_necesaria) * cant).toFixed(2);
+            html += `<li><span>${ing.insumo}</span> <strong>${total} ${ing.unidad_medida}</strong></li>`;
+        });
+        html += '</ul>';
+        modalVistaReceta.innerHTML = html;
+    }
+
+    modalCantidad.addEventListener('input', actualizarVistaReceta);
+
+    // Clic en tarjeta de plato
+    document.querySelectorAll('.dish-card').forEach(card => {
+        card.addEventListener('click', () => {
+            indiceEditando = null;
+            platoActual = {
+                id: card.dataset.id,
+                nombre: card.dataset.nombre,
+                precio: parseFloat(card.dataset.precio)
+            };
+
+            modalProductoId.value = platoActual.id;
+            modalProductoTitulo.textContent = platoActual.nombre;
+            modalCantidad.value = 1;
+            modalObservacion.value = '';
+            btnGuardarProducto.textContent = 'Agregar al Pedido';
+
+            actualizarVistaReceta();
+            abrirModal(modalProducto);
+            modalCantidad.focus();
+        });
+    });
+
+    // Guardar / Editar plato en pedido
+    btnGuardarProducto.addEventListener('click', () => {
+        const cantidad = parseInt(modalCantidad.value) || 0;
+        if (cantidad < 1) {
+            alert('Por favor ingresa una cantidad válida.');
+            return;
+        }
+
+        const item = {
+            id: platoActual.id,
+            nombre: platoActual.nombre,
+            precio: platoActual.precio,
+            cantidad: cantidad,
+            observacion: modalObservacion.value.trim()
+        };
+
+        if (indiceEditando === null) {
+            pedido.push(item);
+        } else {
+            pedido[indiceEditando] = item;
+        }
+
+        renderizarPedido();
+        cerrarModal(modalProducto);
+    });
+
+    // Renderizar panel de pedido
+    function renderizarPedido() {
+        listaItemsPedido.innerHTML = '';
+        let total = 0;
+        let cantidadTotal = 0;
+
+        if (pedido.length === 0) {
+            listaItemsPedido.appendChild(pedidoVacio);
+            btnVaciarPedido.style.display = 'none';
+            btnConfirmarPedido.disabled = true;
+            totalPedidoTexto.textContent = 'Bs. 0.00';
+            contadorProductosPedido.textContent = '0 productos';
+            return;
+        }
+
+        btnVaciarPedido.style.display = 'block';
+        btnConfirmarPedido.disabled = false;
+
+        pedido.forEach((item, index) => {
+            const subtotal = item.precio * item.cantidad;
+            total += subtotal;
+            cantidadTotal += item.cantidad;
+
+            const div = document.createElement('div');
+            div.className = 'order-item';
+            div.innerHTML = `
+                <div class="order-item-details">
+                    <div class="order-item-name">${item.nombre}</div>
+                    <div class="order-item-qty">${item.cantidad} x Bs. ${item.precio.toFixed(2)}</div>
+                    ${item.observacion ? `<span class="order-item-obs">${item.observacion}</span>` : ''}
+                </div>
+                <div class="order-item-actions">
+                    <span class="order-item-subtotal">Bs. ${subtotal.toFixed(2)}</span>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="editarItemPedido(${index})" title="Editar">✏️</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="eliminarItemPedido(${index})" title="Quitar">✕</button>
+                </div>
+            `;
+            listaItemsPedido.appendChild(div);
+        });
+
+        totalPedidoTexto.textContent = 'Bs. ' + total.toFixed(2);
+        contadorProductosPedido.textContent = cantidadTotal + (cantidadTotal === 1 ? ' producto' : ' productos');
+    }
+
+    window.eliminarItemPedido = function(index) {
+        pedido.splice(index, 1);
+        renderizarPedido();
+    };
+
+    window.editarItemPedido = function(index) {
+        indiceEditando = index;
+        const item = pedido[index];
+        platoActual = { id: item.id, nombre: item.nombre, precio: item.precio };
+
+        modalProductoId.value = item.id;
+        modalProductoTitulo.textContent = item.nombre;
+        modalCantidad.value = item.cantidad;
+        modalObservacion.value = item.observacion;
+        btnGuardarProducto.textContent = 'Guardar Cambios';
+
+        actualizarVistaReceta();
+        abrirModal(modalProducto);
+    };
+
+    btnVaciarPedido.addEventListener('click', () => {
+        if (confirm('¿Vaciar todo el pedido actual?')) {
+            pedido = [];
+            renderizarPedido();
+        }
+    });
+
+    // Abrir Modal de Pago
+    btnConfirmarPedido.addEventListener('click', () => {
+        if (pedido.length === 0) return;
+        let total = pedido.reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        document.getElementById('montoTotalPago').textContent = 'Bs. ' + total.toFixed(2);
+        document.getElementById('inputItemsVenta').value = JSON.stringify(pedido);
+        abrirModal(modalPago);
+    });
+
+    // Selector de Método de Pago
+    document.querySelectorAll('.btn-pago-selector').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.btn-pago-selector').forEach(b => b.classList.remove('activo', 'btn-primary'));
+            this.classList.add('activo');
+            document.getElementById('inputMetodoPago').value = this.dataset.metodo;
+        });
+    });
+
+    // Búsqueda en vivo de platos
+    document.getElementById('inputBuscarPlato').addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        let visibles = 0;
+        document.querySelectorAll('.dish-card').forEach(card => {
+            const coincide = card.dataset.nombre.toLowerCase().includes(query);
+            card.style.display = coincide ? 'flex' : 'none';
+            if (coincide) visibles++;
+        });
+        document.getElementById('sinResultadosBusqueda').style.display = visibles === 0 ? 'block' : 'none';
+    });
+
+    // Eventos de Cierre
+    document.getElementById('cerrarModalProducto').addEventListener('click', () => cerrarModal(modalProducto));
+    document.getElementById('btnCancelarProducto').addEventListener('click', () => cerrarModal(modalProducto));
+    document.getElementById('cerrarModalPago').addEventListener('click', () => cerrarModal(modalPago));
+
+    document.getElementById('btnAbrirHistorial').addEventListener('click', () => abrirModal(modalHistorial));
+    document.getElementById('cerrarModalHistorial').addEventListener('click', () => cerrarModal(modalHistorial));
+
+    if (modalRecibo) {
+        document.getElementById('cerrarModalRecibo')?.addEventListener('click', () => {
+            window.location.href = "{% url 'ventas:pos' %}";
+        });
+        document.getElementById('btnAceptarRecibo')?.addEventListener('click', () => {
+            window.location.href = "{% url 'ventas:pos' %}";
+        });
+    }
+
+    // Cerrar al hacer clic en fondo
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+        modal.addEventListener('click', e => {
+            if (e.target === modal && modal.id !== 'modalRecibo') {
+                cerrarModal(modal);
+            }
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,394 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Inventario y Almacén{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">
+        <h2>Inventario y Almacén</h2>
+        <p>Gestión de compras, existencias en tiempo real y registro de mermas.</p>
+    </div>
+    <div class="page-actions">
+        <a href="{% url 'inventario:alertas' %}" class="btn btn-secondary">
+            ⚠️ Alertas de Stock
+        </a>
+        <a href="{% url 'inventario:compras_sugeridas' %}" class="btn btn-secondary">
+            📋 Compras Sugeridas
+        </a>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 460px 1fr; gap: 20px; align-items: start;">
+    <!-- COLUMNA IZQUIERDA: Formulario de Ingreso de Insumo -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 id="tituloFormulario">Registrar Ingreso de Insumo</h3>
+                <span class="subtitle">Ingreso por compra con actualización de stock</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetearFormulario()">Limpiar</button>
+        </div>
+
+        <form action="{% url 'inventario:procesar_ingreso' %}" method="post" id="formIngreso">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="inputInsumo">Nombre del Insumo *</label>
+                <input type="text" id="inputInsumo" name="nombre_insumo" list="listaInsumosExistentes" class="form-input" placeholder="Escribe o selecciona un insumo..." required autocomplete="off">
+                <datalist id="listaInsumosExistentes">
+                    {% for ins in insumos %}
+                        <option value="{{ ins.nombre }}" data-unidad="{{ ins.unidad_medida }}">
+                    {% endfor %}
+                </datalist>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="form-group">
+                    <label for="selectUnidad">Unidad de Medida *</label>
+                    <select id="selectUnidad" name="unidadmedida" class="form-select" required>
+                        <option value="">Seleccionar unidad</option>
+                        <option value="kg">Kilogramos (kg)</option>
+                        <option value="litros">Litros</option>
+                        <option value="und">Unidades (und)</option>
+                        <option value="paquete">Paquete</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="selectProveedor">Proveedor *</label>
+                    <select id="selectProveedor" name="id_proveedor" class="form-select" required>
+                        <option value="">Seleccionar proveedor</option>
+                        {% for prov in proveedores %}
+                            <option value="{{ prov.id }}">{{ prov.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="form-group">
+                    <label for="inputCantidad">Cantidad a Ingresar *</label>
+                    <input type="number" id="inputCantidad" name="cantidad" step="0.01" min="0.01" class="form-input" placeholder="Ej: 10.00" required oninput="calcularPrecioUnidad()">
+                </div>
+
+                <div class="form-group">
+                    <label for="inputFechaIngreso">Fecha de Ingreso *</label>
+                    <input type="date" id="inputFechaIngreso" name="fecha_ingreso" value="{{ fecha_hoy|date:'Y-m-d' }}" class="form-input" required>
+                </div>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="form-group">
+                    <label for="inputPrecioTotal">Precio Total (Bs.) *</label>
+                    <input type="number" id="inputPrecioTotal" name="precio_compra_total" step="0.01" min="0.01" class="form-input" placeholder="Ej: 150.00" required oninput="calcularPrecioUnidad()">
+                </div>
+
+                <div class="form-group">
+                    <label for="inputPrecioUnidad">Precio Unitario (Bs.)</label>
+                    <input type="number" id="inputPrecioUnidad" name="precio_unidad" step="0.01" class="form-input" placeholder="Auto" readonly>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="textareaObservaciones">Observaciones (Opcional)</label>
+                <textarea id="textareaObservaciones" name="observaciones" class="form-textarea" rows="2" placeholder="Ej: Factura #1042, lote reciente..."></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block" style="padding: 11px; margin-top: 6px;">
+                Registrar Ingreso y Sumar Stock
+            </button>
+        </form>
+    </div>
+
+    <!-- COLUMNA DERECHA: Stock Actual de Insumos -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3>Stock Disponible en Inventario</h3>
+                <span class="subtitle">{{ insumos.count }} insumos registrados</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnAbrirHistorialCompleto">
+                📜 Historial Completo
+            </button>
+        </div>
+
+        <div class="search-input-wrap">
+            <input type="search" id="buscarInsumoStock" placeholder="Buscar insumo en inventario..." autocomplete="off">
+        </div>
+
+        <div class="table-responsive" style="max-height: 540px; overflow-y: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th>Stock Actual</th>
+                        <th>Unidad</th>
+                        <th>Último Ingreso</th>
+                        <th style="text-align: right;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tablaStockBody">
+                    {% for ins in insumos %}
+                    <tr class="fila-insumo-stock" data-nombre="{{ ins.nombre|lower }}">
+                        <td>
+                            <strong style="cursor: pointer; color: var(--text-primary);" onclick="seleccionarParaIngreso('{{ ins.nombre|escapejs }}', '{{ ins.unidad_medida }}')">
+                                {{ ins.nombre }}
+                            </strong>
+                        </td>
+                        <td>
+                            <span class="badge {% if ins.estado == 'critico' %}badge-danger{% elif ins.estado == 'bajo' %}badge-warning{% else %}badge-success{% endif %}">
+                                {{ ins.stock_actual|floatformat:2 }}
+                            </span>
+                        </td>
+                        <td><small style="color: var(--text-muted);">{{ ins.unidad_medida }}</small></td>
+                        <td>
+                            {% if ins.ultima_fecha_ingreso %}
+                                <span style="font-size: 0.8rem; color: var(--text-secondary);">{{ ins.ultima_fecha_ingreso|date:"d/m/Y" }}</span>
+                            {% else %}
+                                <span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Sin ingresos</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: right; white-space: nowrap;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="abrirModalPerdida({{ ins.id }}, '{{ ins.nombre|escapejs }}', '{{ ins.unidad_medida }}', '{{ ins.stock_actual }}')">
+                                Pérdida
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="filtrarHistorialInsumo('{{ ins.nombre|escapejs }}')">
+                                Historial
+                            </button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                            No hay insumos registrados en el inventario.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: Registrar Pérdida / Merma -->
+<div class="modal-backdrop" id="modalPerdida" role="dialog" aria-modal="true" aria-labelledby="tituloModalPerdida">
+    <div class="modal-box" style="max-width: 460px;">
+        <div class="modal-header">
+            <h3 id="tituloModalPerdida">Registrar Pérdida / Merma</h3>
+            <button type="button" class="modal-close-btn" id="cerrarModalPerdida">&times;</button>
+        </div>
+        <form action="{% url 'inventario:procesar_perdida' %}" method="post">
+            {% csrf_token %}
+            <div class="modal-body">
+                <input type="hidden" id="perdidaIdInsumo" name="id_insumo">
+
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="form-group">
+                        <label>Insumo</label>
+                        <input type="text" id="perdidaNombreInsumo" class="form-input" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Stock Disponible</label>
+                        <input type="text" id="perdidaStockDisponible" class="form-input" readonly>
+                    </div>
+                </div>
+
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="form-group">
+                        <label for="perdidaCantidad">Cantidad a descontar *</label>
+                        <input type="number" id="perdidaCantidad" name="cantidad" step="0.01" min="0.01" class="form-input" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label for="perdidaFecha">Fecha</label>
+                        <input type="date" id="perdidaFecha" name="fecha" value="{{ fecha_hoy|date:'Y-m-d' }}" class="form-input" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="perdidaObs">Motivo / Observación</label>
+                    <textarea id="perdidaObs" name="observacion" class="form-textarea" rows="2" placeholder="Ej: Vencimiento, rotura, merma en cocina..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelarPerdida">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Descontar del Inventario</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: Historial de Movimientos Combinados -->
+<div class="modal-backdrop" id="modalHistorial" role="dialog" aria-modal="true" aria-labelledby="tituloModalHistorial">
+    <div class="modal-box modal-lg">
+        <div class="modal-header">
+            <div>
+                <span class="subtitle" id="subtituloHistorial">Trazabilidad de Ingresos y Egresos</span>
+                <h3 id="tituloModalHistorial">Historial de Movimientos</h3>
+            </div>
+            <button type="button" class="modal-close-btn" id="cerrarModalHistorial">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+                <input type="search" id="filtroTextoHistorial" class="form-input" placeholder="Filtrar historial por insumo o proveedor..." style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnRestablecerHistorial">Ver Todos</button>
+            </div>
+
+            <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tipo</th>
+                            <th>Fecha</th>
+                            <th>Insumo</th>
+                            <th>Cantidad</th>
+                            <th>Unidad</th>
+                            <th>Proveedor / Motivo</th>
+                            <th>Precio Unit.</th>
+                            <th>Total Pagado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cuerpoHistorial">
+                        {% for mov in historial %}
+                        <tr class="fila-historial" data-insumo="{{ mov.insumo|lower }}">
+                            <td>
+                                {% if mov.tipo == 'ingreso' %}
+                                    <span class="badge badge-success">Ingreso</span>
+                                {% else %}
+                                    <span class="badge badge-danger">Egreso</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ mov.fecha|date:"d/m/Y" }}</td>
+                            <td><strong>{{ mov.insumo }}</strong></td>
+                            <td>
+                                <strong style="color: {% if mov.tipo == 'ingreso' %}var(--success-accent){% else %}var(--danger-accent){% endif %};">
+                                    {% if mov.tipo == 'egreso' %}-{% else %}+{% endif %}{{ mov.cantidad|floatformat:2 }}
+                                </strong>
+                            </td>
+                            <td><small>{{ mov.unidad_medida }}</small></td>
+                            <td>{{ mov.proveedor_obs }}</td>
+                            <td>
+                                {% if mov.precio_unidad %}
+                                    Bs. {{ mov.precio_unidad|floatformat:2 }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if mov.total_pagado %}
+                                    <strong>Bs. {{ mov.total_pagado|floatformat:2 }}</strong>
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                                No hay movimientos de inventario registrados.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function calcularPrecioUnidad() {
+        const cant = parseFloat(document.getElementById('inputCantidad').value) || 0;
+        const total = parseFloat(document.getElementById('inputPrecioTotal').value) || 0;
+        const inputPrecioUnidad = document.getElementById('inputPrecioUnidad');
+        if (cant > 0 && total > 0) {
+            inputPrecioUnidad.value = (total / cant).toFixed(2);
+        } else {
+            inputPrecioUnidad.value = '';
+        }
+    }
+
+    function resetearFormulario() {
+        document.getElementById('formIngreso').reset();
+        document.getElementById('inputFechaIngreso').value = '{{ fecha_hoy|date:"Y-m-d" }}';
+        document.getElementById('inputPrecioUnidad').value = '';
+    }
+
+    function seleccionarParaIngreso(nombre, unidad) {
+        document.getElementById('inputInsumo').value = nombre;
+        document.getElementById('selectUnidad').value = unidad;
+        document.getElementById('inputCantidad').focus();
+    }
+
+    // Modal Pérdida
+    const modalPerdida = document.getElementById('modalPerdida');
+    window.abrirModalPerdida = function(id, nombre, unidad, stock) {
+        document.getElementById('perdidaIdInsumo').value = id;
+        document.getElementById('perdidaNombreInsumo').value = nombre;
+        document.getElementById('perdidaStockDisponible').value = stock + ' ' + unidad;
+        document.getElementById('perdidaCantidad').value = '';
+        document.getElementById('perdidaCantidad').setAttribute('max', stock);
+        modalPerdida.classList.add('is-open');
+        document.getElementById('perdidaCantidad').focus();
+    };
+
+    document.getElementById('cerrarModalPerdida').addEventListener('click', () => modalPerdida.classList.remove('is-open'));
+    document.getElementById('btnCancelarPerdida').addEventListener('click', () => modalPerdida.classList.remove('is-open'));
+
+    // Modal Historial
+    const modalHistorial = document.getElementById('modalHistorial');
+    const subtituloHistorial = document.getElementById('subtituloHistorial');
+    const filtroTextoHistorial = document.getElementById('filtroTextoHistorial');
+
+    document.getElementById('btnAbrirHistorialCompleto').addEventListener('click', () => {
+        subtituloHistorial.textContent = 'Todos los Insumos';
+        filtroTextoHistorial.value = '';
+        filtrarFilasHistorial('');
+        modalHistorial.classList.add('is-open');
+    });
+
+    document.getElementById('cerrarModalHistorial').addEventListener('click', () => modalHistorial.classList.remove('is-open'));
+
+    window.filtrarHistorialInsumo = function(nombreInsumo) {
+        subtituloHistorial.textContent = 'Filtrado por: ' + nombreInsumo;
+        filtroTextoHistorial.value = nombreInsumo;
+        filtrarFilasHistorial(nombreInsumo.toLowerCase());
+        modalHistorial.classList.add('is-open');
+    };
+
+    function filtrarFilasHistorial(query) {
+        document.querySelectorAll('.fila-historial').forEach(fila => {
+            const coincide = fila.textContent.toLowerCase().includes(query);
+            fila.style.display = coincide ? '' : 'none';
+        });
+    }
+
+    filtroTextoHistorial.addEventListener('input', function() {
+        filtrarFilasHistorial(this.value.toLowerCase().trim());
+    });
+
+    document.getElementById('btnRestablecerHistorial').addEventListener('click', () => {
+        filtroTextoHistorial.value = '';
+        subtituloHistorial.textContent = 'Todos los Insumos';
+        filtrarFilasHistorial('');
+    });
+
+    // Búsqueda en vivo de stock
+    document.getElementById('buscarInsumoStock').addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        document.querySelectorAll('.fila-insumo-stock').forEach(fila => {
+            const coincide = fila.dataset.nombre.includes(query);
+            fila.style.display = coincide ? '' : 'none';
+        });
+    });
+
+    // Clic fuera para cerrar
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+        modal.addEventListener('click', e => {
+            if (e.target === modal) modal.classList.remove('is-open');
+        });
+    });
+</script>
+{% endblock %}
